@@ -3,9 +3,9 @@ import json
 from typing import Optional, Dict, List
 
 
-BASE_URL = "https://cvat.perplan.work/api"
-USERNAME = "Lucas.melo"
-PASSWORD = "Perci@25"
+BASE_URL = "https:///api"
+USERNAME = ""
+PASSWORD = ""
 TIMEOUT = 60
 
 PROJECT_ID = None
