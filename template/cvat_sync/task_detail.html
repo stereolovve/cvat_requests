@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}{{ task.task_name }} - CVAT Sync{% endblock %}
+{% block page_title %}Detalhes da Task{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Back Button -->
+    <div>
+        <a href="{% url 'cvat_task_list' %}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i>
+            Voltar para Lista
+        </a>
+    </div>
+
+    <!-- Task Header -->
+    <div class="card p-6">
+        <div class="flex items-start justify-between">
+            <div>
+                <h3 class="text-2xl font-bold text-white mb-2">{{ task.task_name }}</h3>
+                <div class="flex items-center gap-4 text-sm text-slate-400">
+                    <span><i class="fas fa-hashtag mr-1"></i> Job ID: {{ task.cvat_job_id }}</span>
+                    <span><i class="fas fa-tasks mr-1"></i> Task ID: {{ task.cvat_task_id }}</span>
+                    {% if task.project_name %}
+                    <span><i class="fas fa-project-diagram mr-1"></i> {{ task.project_name }}</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if task.cvat_url %}
+            <a href="{{ task.cvat_url }}" target="_blank" class="btn btn-primary">
+                <i class="fas fa-external-link-alt"></i>
+                Abrir no CVAT
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Status and Info -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="card p-4">
+            <p class="text-slate-400 text-xs font-medium uppercase mb-2">
+                <i class="fas fa-flag mr-1"></i> Status
+            </p>
+            {% if task.status %}
+                <span class="badge {% if task.status == 'completed' %}badge-completed{% elif task.status == 'validation' %}badge-validation{% elif task.status == 'annotation' %}badge-annotation{% else %}badge-new{% endif %} text-lg">
+                    {{ task.status }}
+                </span>
+            {% else %}
+                <span class="text-slate-500">Não definido</span>
+            {% endif %}
+        </div>
+
+        <div class="card p-4">
+            <p class="text-slate-400 text-xs font-medium uppercase mb-2">
+                <i class="fas fa-info-circle mr-1"></i> Estado
+            </p>
+            {% if task.state %}
+                <span class="text-white text-lg font-medium">{{ task.state }}</span>
+            {% else %}
+                <span class="text-slate-500">Não definido</span>
+            {% endif %}
+        </div>
+
+        <div class="card p-4">
+            <p class="text-slate-400 text-xs font-medium uppercase mb-2">
+                <i class="fas fa-user mr-1"></i> Responsável
+            </p>
+            {% if task.assignee %}
+                <span class="px-3 py-1 bg-blue-900/30 text-blue-400 rounded text-sm font-medium">
+                    {{ task.assignee }}
+                </span>
+            {% else %}
+                <span class="text-slate-500">Não atribuído</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Annotations Stats -->
+    <div class="card p-6">
+        <h4 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <i class="fas fa-chart-bar text-purple-400"></i>
+            Estatísticas de Anotações
+        </h4>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-green-900/20 border border-green-700/30 rounded-lg p-4">
+                <p class="text-green-400 text-xs font-medium uppercase mb-2">Anotações Manuais</p>
+                <p class="text-3xl font-bold text-white">{{ task.manual_annotations|intcomma }}</p>
+                <p class="text-green-400 text-xs mt-1">Feitas manualmente</p>
+            </div>
+
+            <div class="bg-orange-900/20 border border-orange-700/30 rounded-lg p-4">
+                <p class="text-orange-400 text-xs font-medium uppercase mb-2">Anotações Interpoladas</p>
+                <p class="text-3xl font-bold text-white">{{ task.interpolated_annotations|intcomma }}</p>
+                <p class="text-orange-400 text-xs mt-1">Geradas automaticamente</p>
+            </div>
+
+            <div class="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4">
+                <p class="text-purple-400 text-xs font-medium uppercase mb-2">Total de Anotações</p>
+                <p class="text-3xl font-bold text-white">{{ task.total_annotations|intcomma }}</p>
+                <p class="text-purple-400 text-xs mt-1">Manuais + Interpoladas</p>
+            </div>
+        </div>
+
+        {% if task.total_annotations > 0 %}
+        <div class="mt-6">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm text-slate-400">Distribuição</span>
+                <span class="text-sm text-slate-400">
+                    Manual: {{ task.manual_annotations|floatformat:0 }}
+                    ({% widthratio task.manual_annotations task.total_annotations 100 %}%) |
+                    Interpolado: {{ task.interpolated_annotations|floatformat:0 }}
+                    ({% widthratio task.interpolated_annotations task.total_annotations 100 %}%)
+                </span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-4 overflow-hidden flex">
+                <div class="bg-green-500 h-full" style="width: {% widthratio task.manual_annotations task.total_annotations 100 %}%"></div>
+                <div class="bg-orange-500 h-full" style="width: {% widthratio task.interpolated_annotations task.total_annotations 100 %}%"></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Project Info -->
+    {% if task.project_id %}
+    <div class="card p-6">
+        <h4 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <i class="fas fa-project-diagram text-blue-400"></i>
+            Informações do Projeto
+        </h4>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <p class="text-slate-400 text-sm mb-1">ID do Projeto</p>
+                <p class="text-white font-mono">#{{ task.project_id }}</p>
+            </div>
+
+            <div>
+                <p class="text-slate-400 text-sm mb-1">Nome do Projeto</p>
+                <p class="text-white">{{ task.project_name|default:"Não disponível" }}</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Sync Info -->
+    <div class="card p-6">
+        <h4 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <i class="fas fa-sync text-blue-400"></i>
+            Informações de Sincronização
+        </h4>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <p class="text-slate-400 text-sm mb-1">Última Sincronização</p>
+                <p class="text-white">{{ task.last_synced_at|date:"d/m/Y H:i" }}</p>
+                <p class="text-slate-500 text-xs mt-1">{{ task.last_synced_at|naturaltime }}</p>
+            </div>
+
+            <div>
+                <p class="text-slate-400 text-sm mb-1">Data de Criação</p>
+                <p class="text-white">{{ task.created_at|date:"d/m/Y H:i" }}</p>
+                <p class="text-slate-500 text-xs mt-1">{{ task.created_at|naturaltime }}</p>
+            </div>
+
+            <div>
+                <p class="text-slate-400 text-sm mb-1">Última Atualização</p>
+                <p class="text-white">{{ task.updated_at|date:"d/m/Y H:i" }}</p>
+                <p class="text-slate-500 text-xs mt-1">{{ task.updated_at|naturaltime }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Raw Data (Collapsed by default) -->
+    <div class="card">
+        <button type="button"
+                onclick="document.getElementById('raw-data').classList.toggle('hidden')"
+                class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-800/40 transition-colors">
+            <h4 class="text-lg font-semibold text-white flex items-center gap-2">
+                <i class="fas fa-code text-slate-400"></i>
+                Dados Brutos do CVAT
+            </h4>
+            <i class="fas fa-chevron-down text-slate-400"></i>
+        </button>
+
+        <div id="raw-data" class="hidden border-t border-slate-700 p-4">
+            <pre class="bg-slate-900 text-slate-300 p-4 rounded-lg overflow-x-auto text-sm"><code>{{ task.cvat_data|pprint }}</code></pre>
+        </div>
+    </div>
+</div>
+{% endblock %}

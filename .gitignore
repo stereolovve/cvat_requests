@@ -1,0 +1,47 @@
+# Credenciais e configurações sensíveis
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Ambientes virtuais
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arquivos de saída gerados
+tasks_*.json
+tasks_*.csv
+tasks_*.xlsx
+tasks_summary.json
+
+# OS
+.DS_Store
+Thumbs.db

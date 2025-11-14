@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.cvat.ai)",
+      "WebFetch(domain:cvat.perplan.work)",
+      "Bash(dir /s \"C:\\Users\\lucas.melo\\cvat_api\")",
+      "Bash(dir /s \"C:\\Users\\lucas.melo\\cvat_api\\template\")",
+      "Bash(nul)",
+      "Bash(tree:*)",
+      "Bash(django-admin startproject:*)",
+      "Bash(dir:*)",
+      "Bash(python manage.py:*)",
+      "Bash(python:*)",
+      "Bash(timeout /t 5 /nobreak)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Editar Task{% else %}Nova Task{% endif %} - Traffic Count{% endblock %}
+{% block page_title %}{% if is_edit %}Editar Task{% else %}Nova Task{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="card">
+        <div class="mb-6">
+            <h2 class="text-2xl font-bold text-white">
+                {% if is_edit %}
+                    <i class="fas fa-edit text-blue-400"></i> Editar Task
+                {% else %}
+                    <i class="fas fa-plus text-green-400"></i> Criar Nova Task
+                {% endif %}
+            </h2>
+            <p class="text-slate-400 mt-2">Preencha as informações da task</p>
+        </div>
+
+        <form method="post" class="space-y-6">
+            {% csrf_token %}
+
+            <!-- Título -->
+            <div class="form-group">
+                <label for="titulo" class="form-label required">
+                    <i class="fas fa-heading text-slate-400"></i>
+                    Título da Task
+                </label>
+                <input type="text"
+                       id="titulo"
+                       name="titulo"
+                       value="{% if task %}{{ task.titulo }}{% else %}{{ titulo }}{% endif %}"
+                       class="form-input"
+                       required
+                       maxlength="255"
+                       placeholder="Digite o título da task">
+            </div>
+
+            <!-- Descrição -->
+            <div class="form-group">
+                <label for="descricao" class="form-label">
+                    <i class="fas fa-align-left text-slate-400"></i>
+                    Descrição
+                </label>
+                <textarea id="descricao"
+                          name="descricao"
+                          rows="4"
+                          class="form-input"
+                          placeholder="Descrição detalhada da task (opcional)">{% if task %}{{ task.descricao }}{% else %}{{ descricao }}{% endif %}</textarea>
+            </div>
+
+            <!-- Data de Início e Status -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Data de Início -->
+                <div class="form-group">
+                    <label for="data_inicio" class="form-label">
+                        <i class="fas fa-calendar-alt text-slate-400"></i>
+                        Data de Início
+                    </label>
+                    <input type="date"
+                           id="data_inicio"
+                           name="data_inicio"
+                           value="{% if task and task.data_inicio %}{{ task.data_inicio|date:'Y-m-d' }}{% else %}{{ data_inicio }}{% endif %}"
+                           class="form-input"
+                           placeholder="Será preenchida automaticamente ao iniciar">
+                </div>
+
+                <!-- Status -->
+                <div class="form-group">
+                    <label for="status" class="form-label required">
+                        <i class="fas fa-flag text-slate-400"></i>
+                        Status
+                    </label>
+                    <select id="status" name="status" class="form-select" required>
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}"
+                                    {% if task and task.status == value %}selected
+                                    {% elif not task and value == 'pendente' %}selected{% endif %}>
+                                {{ label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Responsáveis -->
+            <div class="form-group">
+                <label for="responsavel" class="form-label">
+                    <i class="fas fa-user-check text-slate-400"></i>
+                    {% if is_edit %}Responsáveis{% else %}Atribuir a (você será automaticamente designado){% endif %}
+                </label>
+                <div class="relative">
+                    <select id="responsavel"
+                            name="responsavel"
+                            multiple
+                            class="form-select"
+                            style="min-height: 100px;">
+                        {% for usuario in usuarios %}
+                            <option value="{{ usuario.id }}"
+                                    {% if is_edit and usuario in task.responsavel.all %}selected{% endif %}>
+                                {{ usuario.username }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-sm text-slate-400 mt-2">
+                        <i class="fas fa-info-circle"></i>
+                        {% if is_edit %}
+                            Você pode selecionar múltiplas pessoas (Ctrl/Cmd + clique) ou editar via inline na lista de tasks.
+                        {% else %}
+                            Você pode selecionar múltiplas pessoas (Ctrl/Cmd + clique). Você será automaticamente adicionado como responsável.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Form Actions -->
+            <div class="flex items-center justify-between pt-6 border-t border-slate-700">
+                <a href="{% if is_edit %}{% url 'task_detail' task.pk %}{% else %}{% url 'task_list' %}{% endif %}"
+                   class="btn btn-secondary">
+                    <i class="fas fa-times"></i>
+                    Cancelar
+                </a>
+
+                <div class="flex gap-3">
+                    {% if is_edit %}
+                        {% if user == task.criado_por or user.setor == 'SUPER' or user.is_superuser %}
+                        <button type="button"
+                                onclick="if(confirm('Tem certeza que deseja deletar esta task?')) { document.getElementById('deleteForm').submit(); }"
+                                class="btn btn-danger">
+                            <i class="fas fa-trash"></i>
+                            Deletar
+                        </button>
+                        {% endif %}
+                    {% endif %}
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i>
+                        {% if is_edit %}Salvar Alterações{% else %}Criar Task{% endif %}
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Delete Form (hidden) -->
+        {% if is_edit %}
+            {% if user == task.criado_por or user.setor == 'SUPER' or user.is_superuser %}
+            <form id="deleteForm" method="post" action="{% url 'task_delete' task.pk %}" style="display: none;">
+                {% csrf_token %}
+            </form>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-label.required::after {
+        content: " *";
+        color: #ef4444;
+    }
+</style>
+{% endblock %}

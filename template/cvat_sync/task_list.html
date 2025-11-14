@@ -1,0 +1,437 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Tasks CVAT - CVAT Sync{% endblock %}
+{% block page_title %}Tasks Sincronizadas do CVAT{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-gradient-to-br from-blue-600/20 to-blue-800/20 border border-blue-600/30 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-blue-400 text-xs font-medium uppercase mb-1">Total Tasks</p>
+                    <p class="text-3xl font-bold text-white">{{ stats.total_tasks }}</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-tasks text-blue-400 text-2xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gradient-to-br from-purple-600/20 to-purple-800/20 border border-purple-600/30 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-purple-400 text-xs font-medium uppercase mb-1">Total Anotações</p>
+                    <p class="text-3xl font-bold text-white">{{ stats.total_annotations|intcomma }}</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-images text-purple-400 text-2xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters and Actions - Compact & Collapsible -->
+    <div class="card overflow-hidden">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-3 border-b border-slate-700/50">
+            <button type="button" onclick="toggleFilters()" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+                <svg id="filter-chevron" class="w-4 h-4 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                <i class="fas fa-filter text-xs"></i>
+                <span class="text-sm font-medium">Filtros</span>
+                {% if search or project_filter or assignee_filter or status_filter %}
+                <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs font-medium">Ativo</span>
+                {% endif %}
+            </button>
+
+            <form method="post" action="{% url 'cvat_sync' %}" class="inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success btn-sm">
+                    <i class="fas fa-sync-alt"></i>
+                    Sincronizar
+                </button>
+            </form>
+        </div>
+
+        <!-- Collapsible Content -->
+        <div id="filters-content" class="overflow-hidden transition-all duration-300" style="max-height: 0;">
+            <div class="p-3">
+                <form method="get" class="space-y-3">
+                    <!-- Primeira linha: Busca -->
+                    <div>
+                        <input type="text"
+                               name="search"
+                               value="{{ search }}"
+                               placeholder="Buscar por nome da task ou projeto..."
+                               class="w-full bg-slate-700/50 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                    </div>
+
+                    <!-- Segunda linha: Filtros -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <select name="project" class="w-full bg-slate-700/50 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                            <option value="">Todos os Projetos</option>
+                            {% for project in projects %}
+                                {% if project %}
+                                    <option value="{{ project }}" {% if project_filter == project %}selected{% endif %}>
+                                        {{ project }}
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+
+                        <select name="assignee" class="w-full bg-slate-700/50 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                            <option value="">Todos os Responsáveis</option>
+                            {% for assignee in assignees %}
+                                {% if assignee %}
+                                    <option value="{{ assignee }}" {% if assignee_filter == assignee %}selected{% endif %}>
+                                        {{ assignee }}
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+
+                        <select name="status" class="w-full bg-slate-700/50 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                            <option value="">Todos os Status</option>
+                            {% for status in statuses %}
+                                {% if status %}
+                                    <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>
+                                        {{ status }}
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Botões -->
+                    <div class="flex gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="fas fa-filter"></i>
+                            Aplicar
+                        </button>
+
+                        {% if search or project_filter or assignee_filter or status_filter %}
+                        <a href="{% url 'cvat_task_list' %}" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-times"></i>
+                            Limpar
+                        </a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleFilters() {
+            const content = document.getElementById('filters-content');
+            const chevron = document.getElementById('filter-chevron');
+            const isCollapsed = content.style.maxHeight === '0px' || content.style.maxHeight === '';
+
+            if (isCollapsed) {
+                content.style.maxHeight = content.scrollHeight + 'px';
+                chevron.style.transform = 'rotate(180deg)';
+                localStorage.setItem('cvat_filters_open', 'true');
+            } else {
+                content.style.maxHeight = '0';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('cvat_filters_open', 'false');
+            }
+        }
+
+        // Restore state on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const filtersOpen = localStorage.getItem('cvat_filters_open') === 'true';
+            const hasActiveFilters = {% if search or project_filter or assignee_filter or status_filter %}true{% else %}false{% endif %};
+
+            // Open if: was open OR has active filters
+            if (filtersOpen || hasActiveFilters) {
+                const content = document.getElementById('filters-content');
+                const chevron = document.getElementById('filter-chevron');
+                content.style.maxHeight = content.scrollHeight + 'px';
+                chevron.style.transform = 'rotate(180deg)';
+            }
+        });
+    </script>
+
+    <!-- Tasks Table -->
+    <div class="card overflow-hidden">
+        {% if tasks %}
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Task ID</th>
+                            <th>Job ID</th>
+                            <th>Task</th>
+                            <th>Projeto</th>
+                            <th>Responsável</th>
+                            <th>Etapa</th>
+                            <th>Estado</th>
+                            <th class="text-center">Anotações</th>
+                            <th class="text-center">Última Sync</th>
+                            <th class="text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for task in tasks %}
+                        <tr>
+                            <td class="font-mono text-purple-400">#{{ task.cvat_task_id }}</td>
+                            <td class="font-mono text-blue-400">#{{ task.cvat_job_id }}</td>
+                            <td class="font-medium">
+                                <a href="{% url 'cvat_task_detail' task.pk %}" class="text-white hover:text-blue-400 transition-colors">
+                                    {{ task.task_name|truncatechars:40 }}
+                                </a>
+                            </td>
+                            <td>
+                                {% if task.project_name %}
+                                    <a href="?project={{ task.project_name|urlencode }}" class="text-slate-300 hover:text-blue-400 transition-colors cursor-pointer" title="Filtrar por este projeto">
+                                        {{ task.project_name|truncatechars:30 }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-slate-500">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if task.assignee %}
+                                    <a href="?assignee={{ task.assignee|urlencode }}" class="inline-block px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-400 rounded text-xs font-medium transition-colors cursor-pointer" title="Filtrar por este responsável">
+                                        {{ task.assignee }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-slate-500">Não atribuído</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if task.stage %}
+                                    <span class="inline-block px-2 py-1 {% if task.stage == 'acceptance' %}bg-purple-900/30 text-purple-400{% elif task.stage == 'validation' %}bg-yellow-900/30 text-yellow-400{% elif task.stage == 'annotation' %}bg-blue-900/30 text-blue-400{% else %}bg-slate-700/30 text-slate-400{% endif %} rounded text-xs font-medium">
+                                        {{ task.stage }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-slate-500">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if task.state %}
+                                    <span class="inline-block px-2 py-1 {% if task.state == 'completed' %}bg-green-900/30 text-green-400{% elif task.state == 'in progress' %}bg-blue-900/30 text-blue-400{% elif task.state == 'rejected' %}bg-red-900/30 text-red-400{% elif task.state == 'new' %}bg-slate-700/30 text-slate-400{% else %}bg-slate-700/30 text-slate-400{% endif %} rounded text-xs font-medium">
+                                        {{ task.state }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-slate-500">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <span class="px-2 py-1 bg-green-900/30 text-green-400 rounded text-sm font-mono font-bold">
+                                    {{ task.total_annotations|intcomma }}
+                                </span>
+                            </td>
+                            <td class="text-center text-slate-400 text-sm">
+                                {{ task.last_synced_at|naturaltime }}
+                            </td>
+                            <td class="text-center">
+                                <div class="flex items-center justify-center gap-2">
+                                    <a href="{% url 'cvat_task_detail' task.pk %}"
+                                       class="btn btn-sm btn-secondary"
+                                       title="Ver detalhes">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    {% if task.cvat_url %}
+                                    <a href="{{ task.cvat_url }}"
+                                       target="_blank"
+                                       class="btn btn-sm btn-primary"
+                                       title="Abrir no CVAT">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if page_obj.has_other_pages %}
+            <div class="p-4 border-t border-slate-700">
+                <nav class="flex items-center justify-between">
+                    <div class="text-sm text-slate-400">
+                        Mostrando {{ page_obj.start_index }} a {{ page_obj.end_index }} de {{ page_obj.paginator.count }} tasks
+                    </div>
+                    <div class="flex gap-2">
+                        {% if page_obj.has_previous %}
+                            <a href="?page=1{% if search %}&search={{ search }}{% endif %}{% if project_filter %}&project={{ project_filter }}{% endif %}{% if assignee_filter %}&assignee={{ assignee_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+                               class="btn btn-sm btn-secondary">
+                                <i class="fas fa-angle-double-left"></i>
+                            </a>
+                            <a href="?page={{ page_obj.previous_page_number }}{% if search %}&search={{ search }}{% endif %}{% if project_filter %}&project={{ project_filter }}{% endif %}{% if assignee_filter %}&assignee={{ assignee_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+                               class="btn btn-sm btn-secondary">
+                                <i class="fas fa-angle-left"></i>
+                            </a>
+                        {% endif %}
+
+                        <span class="px-4 py-2 bg-slate-700 rounded text-sm text-white">
+                            Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+                        </span>
+
+                        {% if page_obj.has_next %}
+                            <a href="?page={{ page_obj.next_page_number }}{% if search %}&search={{ search }}{% endif %}{% if project_filter %}&project={{ project_filter }}{% endif %}{% if assignee_filter %}&assignee={{ assignee_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+                               class="btn btn-sm btn-secondary">
+                                <i class="fas fa-angle-right"></i>
+                            </a>
+                            <a href="?page={{ page_obj.paginator.num_pages }}{% if search %}&search={{ search }}{% endif %}{% if project_filter %}&project={{ project_filter }}{% endif %}{% if assignee_filter %}&assignee={{ assignee_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+                               class="btn btn-sm btn-secondary">
+                                <i class="fas fa-angle-double-right"></i>
+                            </a>
+                        {% endif %}
+                    </div>
+                </nav>
+            </div>
+            {% endif %}
+
+        {% else %}
+            <div class="p-12 text-center">
+                <i class="fas fa-inbox text-slate-600 text-5xl mb-4"></i>
+                <p class="text-slate-400 text-lg">Nenhuma task encontrada</p>
+                <p class="text-slate-500 text-sm mt-2">Execute a sincronização para importar tasks do CVAT</p>
+
+                <form method="post" action="{% url 'cvat_sync' %}" class="mt-6">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-sync-alt"></i>
+                        Sincronizar Agora
+                    </button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Auto-refresh Script -->
+<script>
+    // Configuração de auto-refresh
+    const AUTO_REFRESH_INTERVAL = 30000;  // 30 segundos
+    let lastRowCount = document.querySelectorAll('tbody tr').length;
+
+    // Buscar timestamp da última sincronização
+    async function checkForUpdates() {
+        try {
+            const response = await fetch(window.location.href, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            if (response.ok) {
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Verificar mudanças
+                const currentContent = document.querySelector('tbody')?.innerHTML;
+                const newContent = doc.querySelector('tbody')?.innerHTML;
+                const currentRows = document.querySelectorAll('tbody tr').length;
+                const newRows = doc.querySelectorAll('tbody tr').length;
+
+                if (currentContent && newContent && (currentContent !== newContent || currentRows !== newRows)) {
+                    // Detectar tipo de mudança
+                    let changeType = 'UPDATE';
+
+                    if (newRows > currentRows) {
+                        changeType = 'CREATE';
+                        console.log('[Auto-refresh] Nova task detectada!');
+                    } else if (newRows < currentRows) {
+                        changeType = 'DELETE';
+                        console.log('[Auto-refresh] Task deletada detectada!');
+                    } else {
+                        console.log('[Auto-refresh] Update detectado!');
+                    }
+
+                    lastRowCount = newRows;
+
+                    // Mostrar notificação e recarregar
+                    showUpdateNotification(changeType);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                }
+            }
+        } catch (error) {
+            console.log('[Auto-refresh] Erro ao verificar atualizações:', error);
+        }
+    }
+
+    // Mostrar notificação de atualização
+    function showUpdateNotification(changeType = 'UPDATE') {
+        const messages = {
+            'CREATE': 'Nova task criada!',
+            'DELETE': 'Task deletada!',
+            'UPDATE': 'Tasks atualizadas!'
+        };
+
+        const colors = {
+            'CREATE': 'linear-gradient(135deg, #10b981 0%, #059669 100%)',  // Verde
+            'DELETE': 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',  // Vermelho
+            'UPDATE': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'   // Roxo
+        };
+
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${colors[changeType]};
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 9999;
+            animation: slideIn 0.3s ease-out;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <i class="fas fa-sync-alt" style="animation: spin 1s linear infinite;"></i>
+                <span style="font-weight: 500;">${messages[changeType]} Atualizando...</span>
+            </div>
+        `;
+
+        // Adicionar animações
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+        document.body.appendChild(notification);
+    }
+
+    // Iniciar polling
+    function startAutoRefresh() {
+        console.log(`[Auto-refresh] Iniciado - verificando a cada ${AUTO_REFRESH_INTERVAL/1000}s`);
+        setInterval(checkForUpdates, AUTO_REFRESH_INTERVAL);
+    }
+
+    // Iniciar quando página carregar
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startAutoRefresh);
+    } else {
+        startAutoRefresh();
+    }
+</script>
+{% endblock %}
