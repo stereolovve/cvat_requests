@@ -7,6 +7,45 @@ from django.db import transaction
 from cvat_sync.models import CVATTask
 
 
+def map_cvat_state_to_status(stage, cvat_state):
+    """
+    Mapeia stage + state do CVAT para o status do sistema.
+
+    Args:
+        stage: Etapa do workflow (annotation, validation, acceptance)
+        cvat_state: Estado do CVAT (new, in progress, completed, rejected)
+
+    Returns:
+        str: Status do sistema (pendente, em_andamento, conferindo, feito, revisado)
+    """
+    # Normalizar
+    stage_lower = (stage or '').lower()
+    state_lower = (cvat_state or '').lower()
+
+    # Regra 1: acceptance + completed = feito
+    if stage_lower == 'acceptance' and state_lower == 'completed':
+        return 'feito'
+
+    # Regra 2: qualquer stage + new = pendente
+    if state_lower == 'new':
+        return 'pendente'
+
+    # Regra 3: qualquer stage + in progress = em_andamento
+    if state_lower == 'in progress':
+        return 'em_andamento'
+
+    # Regra 4: completed (mas não acceptance) = conferindo
+    if state_lower == 'completed':
+        return 'conferindo'
+
+    # Regra 5: rejected = pendente
+    if state_lower == 'rejected':
+        return 'pendente'
+
+    # Default
+    return 'pendente'
+
+
 class Command(BaseCommand):
     help = 'Sincroniza tasks do CVAT com o banco de dados local'
 
@@ -148,7 +187,21 @@ class Command(BaseCommand):
                 # ETAPA 6: Gerar URL do CVAT
                 cvat_url = f"https://cvat.perplan.work/tasks/{task_id}/jobs/{job_id}"
 
+                # ETAPA 7: Mapear status baseado em stage + state
+                stage_value = job.get("stage")
+                state_value = job.get("state")
+                mapped_status = map_cvat_state_to_status(stage_value, state_value)
+
                 with transaction.atomic():
+                    # Verificar se task existe e se tem override manual
+                    try:
+                        existing_task = CVATTask.objects.get(cvat_job_id=job_id)
+                        # Se tem override manual, não sobrescrever status
+                        if existing_task.manual_override:
+                            mapped_status = existing_task.status
+                    except CVATTask.DoesNotExist:
+                        pass  # Task nova, usar mapped_status
+
                     task_obj, created = CVATTask.objects.update_or_create(
                         cvat_job_id=job_id,
                         defaults={
@@ -157,9 +210,10 @@ class Command(BaseCommand):
                             'project_name': project_name,
                             'task_name': task_name,
                             'assignee': assignee_username,
-                            'status': job.get("status"),
-                            'stage': job.get("stage"),
-                            'state': job.get("state"),
+                            'status': mapped_status,
+                            'cvat_status': job.get("status"),
+                            'stage': stage_value,
+                            'cvat_state': state_value,
                             'manual_annotations': annotations["total_manual"],
                             'interpolated_annotations': annotations["total_interpolated"],
                             'total_annotations': annotations["total"],

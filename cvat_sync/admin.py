@@ -10,13 +10,14 @@ class CVATTaskAdmin(admin.ModelAdmin):
         "project_name",
         "assignee",
         "status",
-        "state",
+        "cvat_state",
         "total_annotations",
         "last_synced_at",
     ]
-    list_filter = ["status", "state", "assignee", "project_name"]
+    list_filter = ["status", "cvat_state", "assignee", "project_name", "manual_override"]
     search_fields = ["task_name", "project_name", "assignee", "cvat_job_id"]
     readonly_fields = ["created_at", "updated_at", "last_synced_at"]
+    filter_horizontal = ["responsavel"]
 
     fieldsets = (
         ("Identificação CVAT", {
@@ -26,7 +27,10 @@ class CVATTaskAdmin(admin.ModelAdmin):
             "fields": ("project_id", "project_name", "task_name")
         }),
         ("Responsável e Status", {
-            "fields": ("assignee", "status", "state")
+            "fields": ("assignee", "responsavel", "status", "manual_override", "cvat_status", "cvat_state", "stage")
+        }),
+        ("Datas", {
+            "fields": ("data_inicio", "data_conclusao")
         }),
         ("Anotações", {
             "fields": (

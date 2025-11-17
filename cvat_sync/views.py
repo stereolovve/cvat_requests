@@ -18,13 +18,18 @@ import requests
 
 
 class CVATTaskListView(ListView):
-    """View para listar tasks sincronizadas do CVAT."""
+    """View para listar tasks sincronizadas do CVAT com 3 modos de visualização."""
     model = CVATTask
     template_name = "cvat_sync/task_list.html"
     context_object_name = "tasks"
     paginate_by = 50
 
     def get_queryset(self):
+        # Para dashboard view, não precisamos paginar
+        view_mode = self.request.GET.get("view", "list")
+        if view_mode == "dashboard":
+            return CVATTask.objects.none()  # Dashboard não usa queryset
+
         queryset = CVATTask.objects.all()
 
         # Filtro por busca (task_name ou project_name)
@@ -50,14 +55,39 @@ class CVATTaskListView(ListView):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        # Ordenação (mais recente primeiro = Job IDs maiores)
-        order_by = self.request.GET.get("order_by", "-cvat_job_id")
-        queryset = queryset.order_by(order_by)
+        # Ordenação customizada
+        sort_field = self.request.GET.get("sort", "cvat_job_id")
+        sort_order = self.request.GET.get("order", "desc")
+
+        # Mapping de campos permitidos para ordenação
+        sortable_fields = {
+            'cvat_task_id': 'cvat_task_id',
+            'cvat_job_id': 'cvat_job_id',
+            'task_name': 'task_name',
+            'project_name': 'project_name',
+            'total_annotations': 'total_annotations',
+            'last_synced_at': 'last_synced_at',
+        }
+
+        # Validar campo de ordenação
+        if sort_field in sortable_fields:
+            order_field = sortable_fields[sort_field]
+            if sort_order == 'asc':
+                queryset = queryset.order_by(order_field)
+            else:
+                queryset = queryset.order_by(f'-{order_field}')
+        else:
+            # Fallback para ordenação padrão
+            queryset = queryset.order_by('-cvat_job_id')
 
         return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        # View mode
+        view_mode = self.request.GET.get("view", "list")
+        context["view_mode"] = view_mode
 
         # Adicionar filtros ao contexto
         context["search"] = self.request.GET.get("search", "")
@@ -65,29 +95,60 @@ class CVATTaskListView(ListView):
         context["assignee_filter"] = self.request.GET.get("assignee", "")
         context["status_filter"] = self.request.GET.get("status", "")
 
+        # Adicionar informações de ordenação
+        context["sort_field"] = self.request.GET.get("sort", "cvat_job_id")
+        context["sort_order"] = self.request.GET.get("order", "desc")
+
         # Listas únicas para filtros
         context["projects"] = CVATTask.objects.values_list("project_name", flat=True).distinct().order_by("project_name")
         context["assignees"] = CVATTask.objects.values_list("assignee", flat=True).distinct().order_by("assignee")
-        context["statuses"] = CVATTask.objects.values_list("status", flat=True).distinct().order_by("status")
+        context["status_choices"] = CVATTask.STATUS_CHOICES
 
         # Estatísticas gerais
         total_tasks = CVATTask.objects.count()
+        tasks_em_andamento = CVATTask.objects.filter(status='em_andamento').count()
+        tasks_concluidas = CVATTask.objects.filter(status__in=['feito', 'revisado']).count()
         total_annotations = CVATTask.objects.aggregate(
             total=Sum("total_annotations")
-        )["total"] or 0
-        total_manual = CVATTask.objects.aggregate(
-            total=Sum("manual_annotations")
-        )["total"] or 0
-        total_interpolated = CVATTask.objects.aggregate(
-            total=Sum("interpolated_annotations")
         )["total"] or 0
 
         context["stats"] = {
             "total_tasks": total_tasks,
             "total_annotations": total_annotations,
-            "total_manual": total_manual,
-            "total_interpolated": total_interpolated,
         }
+        context["tasks_em_andamento"] = tasks_em_andamento
+        context["tasks_concluidas"] = tasks_concluidas
+
+        # Para grouped view, agrupar tasks por status
+        if view_mode == "grouped":
+            tasks_por_status = {}
+            for status_value, status_label in CVATTask.STATUS_CHOICES:
+                # Aplicar mesmos filtros
+                queryset = CVATTask.objects.filter(status=status_value)
+
+                search = self.request.GET.get("search", "").strip()
+                if search:
+                    queryset = queryset.filter(
+                        Q(task_name__icontains=search) |
+                        Q(project_name__icontains=search)
+                    )
+
+                project_filter = self.request.GET.get("project", "").strip()
+                if project_filter:
+                    queryset = queryset.filter(project_name=project_filter)
+
+                assignee_filter = self.request.GET.get("assignee", "").strip()
+                if assignee_filter:
+                    queryset = queryset.filter(assignee=assignee_filter)
+
+                queryset = queryset.order_by("-cvat_job_id")
+
+                tasks_por_status[status_value] = {
+                    'count': queryset.count(),
+                    'tasks': list(queryset)
+                }
+
+            context["tasks_por_status"] = tasks_por_status
 
         return context
 
@@ -297,6 +358,45 @@ def get_client_ip(request):
     return ip
 
 
+def map_cvat_state_to_status(stage, cvat_state):
+    """
+    Mapeia stage + state do CVAT para o status do sistema.
+
+    Args:
+        stage: Etapa do workflow (annotation, validation, acceptance)
+        cvat_state: Estado do CVAT (new, in progress, completed, rejected)
+
+    Returns:
+        str: Status do sistema (pendente, em_andamento, conferindo, feito, revisado)
+    """
+    # Normalizar
+    stage_lower = (stage or '').lower()
+    state_lower = (cvat_state or '').lower()
+
+    # Regra 1: acceptance + completed = feito
+    if stage_lower == 'acceptance' and state_lower == 'completed':
+        return 'feito'
+
+    # Regra 2: qualquer stage + new = pendente
+    if state_lower == 'new':
+        return 'pendente'
+
+    # Regra 3: qualquer stage + in progress = em_andamento
+    if state_lower == 'in progress':
+        return 'em_andamento'
+
+    # Regra 4: completed (mas não acceptance) = conferindo
+    if state_lower == 'completed':
+        return 'conferindo'
+
+    # Regra 5: rejected = pendente
+    if state_lower == 'rejected':
+        return 'pendente'
+
+    # Default
+    return 'pendente'
+
+
 def fetch_project_name_from_cvat(project_id):
     """
     Busca o nome de um projeto no CVAT.
@@ -328,6 +428,10 @@ def fetch_project_name_from_cvat(project_id):
 def process_job_event(payload, webhook_log):
     """
     Processa eventos de create/update de jobs do CVAT.
+
+    Implementa lógica híbrida:
+    - Sincroniza status do CVAT automaticamente
+    - Preserva status se manual_override=True
 
     Args:
         payload: Dados do webhook
@@ -382,23 +486,61 @@ def process_job_event(payload, webhook_log):
         # Gerar URL do CVAT
         cvat_url = f"https://cvat.perplan.work/tasks/{task_id}/jobs/{job_id}" if task_id and job_id else None
 
-        # Buscar ou criar a task
-        task, created = CVATTask.objects.update_or_create(
-            cvat_job_id=job_id,
-            defaults={
+        # Mapear status do CVAT para status do sistema
+        stage = job_data.get("stage")
+        cvat_state = job_data.get("state")
+        mapped_status = map_cvat_state_to_status(stage, cvat_state)
+
+        # Verificar se task já existe
+        try:
+            existing_task = CVATTask.objects.get(cvat_job_id=job_id)
+
+            # Preparar defaults para update
+            defaults = {
                 "cvat_task_id": task_id or 0,
                 "task_name": task_name,
                 "project_id": project_id,
                 "project_name": project_name,
                 "assignee": assignee,
-                "status": job_data.get("status"),
+                "cvat_status": job_data.get("status"),
                 "stage": job_data.get("stage"),
-                "state": job_data.get("state"),
-                "cvat_url": cvat_url,  # FIX: Garantir URL do CVAT
+                "cvat_state": cvat_state,
+                "cvat_url": cvat_url,
                 "cvat_data": payload,
                 "last_synced_at": timezone.now()
             }
-        )
+
+            # LÓGICA HÍBRIDA: Só atualizar status se não foi editado manualmente
+            if not existing_task.manual_override:
+                defaults["status"] = mapped_status
+
+            # Atualizar task
+            for field, value in defaults.items():
+                setattr(existing_task, field, value)
+            existing_task.save()
+
+            task = existing_task
+            created = False
+
+        except CVATTask.DoesNotExist:
+            # Task nova - criar com status mapeado
+            task = CVATTask.objects.create(
+                cvat_job_id=job_id,
+                cvat_task_id=task_id or 0,
+                task_name=task_name,
+                project_id=project_id,
+                project_name=project_name,
+                assignee=assignee,
+                status=mapped_status,
+                cvat_status=job_data.get("status"),
+                stage=job_data.get("stage"),
+                cvat_state=cvat_state,
+                cvat_url=cvat_url,
+                cvat_data=payload,
+                manual_override=False,
+                last_synced_at=timezone.now()
+            )
+            created = True
 
         # Associar webhook log à task
         webhook_log.cvat_task = task
@@ -499,23 +641,61 @@ def process_task_event(payload, webhook_log):
         # Gerar URL do CVAT
         cvat_url = f"https://cvat.perplan.work/tasks/{task_id}/jobs/{job_id}" if task_id and job_id else None
 
-        # Criar ou atualizar a task
-        task, created = CVATTask.objects.update_or_create(
-            cvat_job_id=job_id,
-            defaults={
+        # Mapear status do CVAT para status do sistema
+        stage = task_info.get('stage')
+        cvat_state = task_info.get('state')
+        mapped_status = map_cvat_state_to_status(stage, cvat_state)
+
+        # Verificar se task já existe
+        try:
+            existing_task = CVATTask.objects.get(cvat_job_id=job_id)
+
+            # Preparar defaults para update
+            defaults = {
                 "cvat_task_id": task_id,
                 "task_name": task_info.get('name', f'Task #{task_id}'),
                 "project_id": task_info.get('project_id'),
                 "project_name": project_name,
                 "assignee": assignee,
-                "status": task_info.get('status'),
+                "cvat_status": task_info.get('status'),
                 "stage": task_info.get('stage'),
-                "state": task_info.get('state'),
-                "cvat_url": cvat_url,  # FIX: Garantir URL do CVAT
+                "cvat_state": cvat_state,
+                "cvat_url": cvat_url,
                 "cvat_data": payload,
                 "last_synced_at": timezone.now()
             }
-        )
+
+            # LÓGICA HÍBRIDA: Só atualizar status se não foi editado manualmente
+            if not existing_task.manual_override:
+                defaults["status"] = mapped_status
+
+            # Atualizar task
+            for field, value in defaults.items():
+                setattr(existing_task, field, value)
+            existing_task.save()
+
+            task = existing_task
+            created = False
+
+        except CVATTask.DoesNotExist:
+            # Task nova - criar com status mapeado
+            task = CVATTask.objects.create(
+                cvat_job_id=job_id,
+                cvat_task_id=task_id,
+                task_name=task_info.get('name', f'Task #{task_id}'),
+                project_id=task_info.get('project_id'),
+                project_name=project_name,
+                assignee=assignee,
+                status=mapped_status,
+                cvat_status=task_info.get('status'),
+                stage=task_info.get('stage'),
+                cvat_state=cvat_state,
+                cvat_url=cvat_url,
+                cvat_data=payload,
+                manual_override=False,
+                last_synced_at=timezone.now()
+            )
+            created = True
 
         # Associar webhook log à task
         webhook_log.cvat_task = task
@@ -725,3 +905,213 @@ def login_to_cvat():
     except Exception as e:
         print(f"[ERROR] Failed to login to CVAT: {str(e)}")
         return None
+
+
+# ============================================================================
+# API ENDPOINTS PARA EDIÇÃO INLINE E DASHBOARD
+# ============================================================================
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_task_field(request):
+    """
+    API endpoint para atualizar um campo específico de uma task.
+    Usado pela edição inline.
+    """
+    try:
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        field = data.get('field')
+        value = data.get('value')
+
+        if not all([task_id, field]):
+            return JsonResponse({'error': 'Missing required fields'}, status=400)
+
+        task = get_object_or_404(CVATTask, id=task_id)
+
+        # Campos permitidos para edição
+        allowed_fields = ['task_name', 'assignee', 'status', 'data_inicio', 'data_conclusao']
+
+        if field not in allowed_fields:
+            return JsonResponse({'error': f'Field {field} not allowed'}, status=400)
+
+        # Se estiver editando status, marcar manual_override
+        if field == 'status':
+            if value not in dict(CVATTask.STATUS_CHOICES):
+                return JsonResponse({'error': 'Invalid status value'}, status=400)
+            task.manual_override = True
+
+        # Atualizar campo
+        setattr(task, field, value)
+        task.save()
+
+        return JsonResponse({
+            'success': True,
+            'task_id': task.id,
+            'field': field,
+            'value': value
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_task_responsaveis(request):
+    """
+    API endpoint para atualizar os responsáveis de uma task (ManyToMany).
+    """
+    try:
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        user_ids = data.get('user_ids', [])
+
+        if not task_id:
+            return JsonResponse({'error': 'Missing task_id'}, status=400)
+
+        task = get_object_or_404(CVATTask, id=task_id)
+
+        # Atualizar responsáveis
+        from django.contrib.auth.models import User
+        users = User.objects.filter(id__in=user_ids)
+        task.responsavel.set(users)
+        task.save()
+
+        return JsonResponse({
+            'success': True,
+            'task_id': task.id,
+            'responsaveis': [
+                {'id': u.id, 'username': u.username}
+                for u in task.responsavel.all()
+            ]
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def dashboard_metrics(request):
+    """
+    API endpoint para retornar métricas do dashboard.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from django.db.models import Count, Avg, F, ExpressionWrapper, DurationField
+
+        # Filtros de data
+        quick_filter = request.GET.get('quick_filter', '')  # '7d', '30d', 'this_month', 'last_month'
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+
+        # Determinar range de datas
+        now = timezone.now()
+        queryset = CVATTask.objects.all()
+
+        if quick_filter == '7d':
+            start = now - timedelta(days=7)
+            queryset = queryset.filter(last_synced_at__gte=start)
+        elif quick_filter == '30d':
+            start = now - timedelta(days=30)
+            queryset = queryset.filter(last_synced_at__gte=start)
+        elif quick_filter == 'this_month':
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            queryset = queryset.filter(last_synced_at__gte=start)
+        elif quick_filter == 'last_month':
+            first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            first_last_month = (first_this_month - timedelta(days=1)).replace(day=1)
+            queryset = queryset.filter(
+                last_synced_at__gte=first_last_month,
+                last_synced_at__lt=first_this_month
+            )
+        elif start_date and end_date:
+            queryset = queryset.filter(
+                last_synced_at__gte=start_date,
+                last_synced_at__lte=end_date
+            )
+
+        # Métricas gerais
+        total_tasks = queryset.count()
+        total_concluidas = queryset.filter(status__in=['feito', 'revisado']).count()
+        taxa_conclusao = (total_concluidas / total_tasks * 100) if total_tasks > 0 else 0
+
+        # Tempo médio de conclusão (tasks com data_inicio e data_conclusao)
+        tasks_with_dates = queryset.filter(
+            data_inicio__isnull=False,
+            data_conclusao__isnull=False
+        )
+
+        if tasks_with_dates.exists():
+            tempo_medio_seconds = tasks_with_dates.aggregate(
+                avg_time=Avg(
+                    ExpressionWrapper(
+                        F('data_conclusao') - F('data_inicio'),
+                        output_field=DurationField()
+                    )
+                )
+            )['avg_time']
+            tempo_medio_dias = tempo_medio_seconds.days if tempo_medio_seconds else 0
+        else:
+            tempo_medio_dias = 0
+
+        # Total de anotações
+        total_anotacoes = queryset.aggregate(
+            total=Sum('total_annotations')
+        )['total'] or 0
+
+        # Rankings
+        # 1. Por tasks concluídas (usando assignee do CVAT)
+        ranking_tasks = queryset.filter(
+            status__in=['feito', 'revisado'],
+            assignee__isnull=False
+        ).values('assignee').annotate(
+            tasks_completed=Count('id')
+        ).order_by('-tasks_completed')[:10]
+
+        # 2. Por anotações
+        ranking_anotacoes = queryset.filter(
+            assignee__isnull=False
+        ).values('assignee').annotate(
+            total_anotacoes=Sum('total_annotations')
+        ).order_by('-total_anotacoes')[:10]
+
+        # 3. Por produtividade (anotações / tasks)
+        ranking_produtividade = []
+        for item in ranking_anotacoes:
+            username = item['assignee']
+            user_tasks = queryset.filter(assignee=username)
+            tasks_count = user_tasks.count()
+            total_ann = item['total_anotacoes']
+            produtividade = total_ann / tasks_count if tasks_count > 0 else 0
+
+            ranking_produtividade.append({
+                'username': username,
+                'productivity': round(produtividade, 2),
+                'tasks': tasks_count,
+                'anotacoes': total_ann
+            })
+
+        ranking_produtividade = sorted(
+            ranking_produtividade,
+            key=lambda x: x['productivity'],
+            reverse=True
+        )[:10]
+
+        return JsonResponse({
+            'metrics': {
+                'total_tasks': total_tasks,
+                'total_concluidas': total_concluidas,
+                'taxa_conclusao': round(taxa_conclusao, 1),
+                'tempo_medio_dias': tempo_medio_dias,
+                'total_anotacoes': total_anotacoes
+            },
+            'rankings': {
+                'by_tasks': list(ranking_tasks),
+                'by_anotacoes': list(ranking_anotacoes),
+                'by_productivity': ranking_produtividade
+            }
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

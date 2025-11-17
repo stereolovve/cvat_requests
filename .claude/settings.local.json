@@ -12,7 +12,10 @@
       "Bash(dir:*)",
       "Bash(python manage.py:*)",
       "Bash(python:*)",
-      "Bash(timeout /t 5 /nobreak)"
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(sqlite3:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

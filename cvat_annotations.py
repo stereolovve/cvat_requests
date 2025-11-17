@@ -3,15 +3,16 @@ import json
 from typing import Optional, Dict, List
 
 
-BASE_URL = "https://cvat.perplan.work/api"
-USERNAME = "Lucas.melo"
+#BASE_URL = "https://cvat.perplan.work/api"
+BASE_URL = "https://app.cvat.ai/api"
+USERNAME = "perplan"
 PASSWORD = "Perci@25"
-TIMEOUT = 60
+TIMEOUT = 10
 
 PROJECT_ID = None
 TASK_ID = None
 JOB_ID = None
-ASSIGNEE = None
+ASSIGNEE = "perplan"
 STATUS = None
 
 
